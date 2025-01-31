@@ -123,13 +123,80 @@ def plot_initial_frames(ax,points,heading_defined= True):
         scale=np.linalg.norm([x_interval,y_interval])
                 
         ax.quiver(x, y, scale*np.cos(yaw), scale*np.sin(yaw), 
-                angles='xy', scale_units='xy', scale = 3, color='g', label='Yaw')
+                angles='xy', scale_units='xy', scale = 3, color='r', label='Yaw')
   
-def plot_3d_pattern(ax, initial_frames, waypoints_array):
+def plot_3d_pattern(ax, initial_frames, waypoints_array, show_x = True, show_y = True, show_z = True):
     # Plot
     x, y, z= waypoints_array[:, 0], waypoints_array[:, 1], waypoints_array[:, 2]
     ax.plot(initial_frames[:,0], initial_frames[:,1], initial_frames[:,2], color ="k")      
     ax.plot(x, y, z, color = "b",marker='o', linestyle='--')
+    
+    # if one is true then plot the appropriate quiver
+    if show_x or show_y or show_z: # if one is true then do the code
+        axis_length = 0.1
+        for waypoint in initial_frames:
+        
+            R = get_rotation_from_waypoint(waypoint)
+           
+            
+            if show_x and show_y and show_z:
+                ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, :], R[1, :], R[2, :],
+                                colors = ['red', 'green', 'blue'], length=axis_length, normalize=True)
+                
+            else:
+                if show_x:
+                    #x_axis
+                    ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 0], R[1, 0], R[2, 0],
+                                color='red', length=axis_length, normalize=True)
+                if show_y:
+                    # Y axis (green)
+                    ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 1], R[1, 1], R[2, 1],
+                            color='green', length=axis_length, normalize=True)
+                if show_z:
+                    # Z axis (blue)
+                    ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 2], R[1, 2], R[2, 2],
+                            color='blue', length=axis_length, normalize=True)
+                    
+            
+        for waypoint in waypoints_array:
+            R = get_rotation_from_waypoint(waypoint)
+                    
+            if show_x and show_y and show_z:
+                ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, :], R[1, :], R[2, :],
+                                colors = ['red', 'green', 'blue'], length=axis_length, normalize=True)
+                
+            else:
+                if show_x:
+                    #x_axis
+                    ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 0], R[1, 0], R[2, 0],
+                                color='red', length=axis_length, normalize=True)
+                if show_y:
+                    # Y axis (green)
+                    ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 1], R[1, 1], R[2, 1],
+                            color='green', length=axis_length, normalize=True)
+                if show_z:
+                    # Z axis (blue)
+                    ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 2], R[1, 2], R[2, 2],
+                            color='blue', length=axis_length, normalize=True)
+                    
+            
+            # R = get_rotation_from_waypoint(waypoint)
+            # print(R)
+            # axis_length = 0.1    # X axis (red)
+            # if show_x:
+            #     #x_axis
+            #     ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 0], R[1, 0], R[2, 0],
+            #                 color='red', length=axis_length, normalize=True)
+            # if show_y:
+            #     # Y axis (green)
+            #     ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 1], R[1, 1], R[2, 1],
+            #             color='green', length=axis_length, normalize=True)
+            # if show_z:
+            #     # Z axis (blue)
+            #     ax.quiver(waypoint[0], waypoint[1], waypoint[2], R[0, 2], R[1, 2], R[2, 2],
+            #             color='blue', length=axis_length, normalize=True)     
+
+        
     elevation = -25
     azimuth = 66
     roll = 179
@@ -152,6 +219,10 @@ def get_premade_test_waypoints(test="square", initial_pose = Pose(), mstack = np
         print("visualizing line test")
         waypoints_array = line_test(initial_pose=initial_pose, mstack=mstack)
       
+    elif test ==  "L":
+        print("visualizing L test")
+        waypoints_array = L_test(initial_pose=initial_pose, mstack=mstack)
+        
     elif test ==  "z1":
         print("visualizing z1 test")
         waypoints_array = z_test(initial_pose=initial_pose, mstack=mstack)
@@ -200,6 +271,13 @@ def main():
     
     simulate_global_origin = True
     test = "square"
+    # test = "rotate"
+    # test = "line"
+    # test =  "L"
+    # test =  "z1"
+    # test =  "z2"
+    # test = "new"
+
   
     
     if simulate_global_origin:
@@ -234,33 +312,34 @@ def main():
 
 
         # get the waypoints
-        new_waypoints = get_premade_test_waypoints(test=test,initial_pose=origin, mstack=mstack)
+        try:
+            new_waypoints = get_premade_test_waypoints(test=test,initial_pose=origin, mstack=mstack)
+            # raise ValueError("No test associated with this option")  # Example line that raises the error
+        except ValueError as e:
+            if str(e) == "No test associated with this option":
+                print(e)
+                return 0
+                # Handle other ValueError instances if needed
+            
+        # new_waypoints = get_premade_test_waypoints(test=test,initial_pose=origin, mstack=mstack)
         waypoints_array = add_waypoints(current_waypoints=waypoint_array, new_waypoints=new_waypoints)
         
         # plot the points in 2d and 3d
-        plot_pattern(ax, waypoints_array, f"{test} test pattern\n black shows global origin and inital body frame", heading_defined=True)  
+        plot_pattern(ax, waypoints_array, f"{test} test pattern in x-y plane\n black marker is global origin", heading_defined=True)  
         plot_initial_frames(ax, initial_frames)
         plot_3d_pattern(ax2,initial_frames=initial_frames, waypoints_array=waypoints_array)
 
         # Display all plots
         plt.tight_layout()
-        plt.show()
-    else:
-        # PLOTTING
-        num_rows = 1
-        num_cols = 1
-        fig, axs = plt.subplots(num_rows, num_cols, figsize=(10, 10), sharex=False)
-        
-        waypoints_array = get_premade_test_waypoints(test)
-        plot_pattern(axs, waypoints_array, test, heading_defined=True)       
-        
-        # Display all plots
-        plt.tight_layout()
-        plt.show()
-            
-        
-        return 0
+    
+        waypoints_pos = waypoints_array[:,0:2]
+        waypoints_yaw = waypoints_array[:,5]
+        waypoints = np.vstack((waypoints_pos.T, waypoints_yaw)).T
+    
+        return waypoints
     
 if __name__ == "__main__":
-    main()
+    waypoints = main()
+    plt.show()
+    
     
