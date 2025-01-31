@@ -1,77 +1,155 @@
 import numpy as np
+from classes import *
+from  quarternions import *
 
-def rotation_matrix(axis, angle):
+# TO DO: need to test this in 3D but it works when i only adjust Yaw
+def generate_rotation_matrix(axis=[0, 0, 1], angle=0):
     """
-    Generate a 3x3 rotation matrix for rotating about the specified axis by the specified angle.
+    Generates a 3x3 rotation matrix from a given axis and angle.
 
     Parameters:
-    axis (str): The axis to rotate about ('x', 'y', or 'z').
-    angle_degrees (float): The rotation angle in radians.
-
+        axis (list or numpy.ndarray): The axis of rotation. Default is [0, 0, 1].
+        angle (float): The angle of rotation in radians.
+    
     Returns:
-    numpy.ndarray: A 3x3 rotation matrix.
+        numpy.ndarray: A 3x3 rotation matrix.
     """
     
-    cos_angle = np.cos(angle)
-    sin_angle = np.sin(angle)
+    # Convert axis to numpy array if not already
+    axis = np.array(axis)
 
-    if axis == 'roll':
-        return np.array([[1, 0, 0],
-                         [0, cos_angle, -sin_angle],
-                         [0, sin_angle, cos_angle]])
-    elif axis == 'pitch':
-        return np.array([[cos_angle, 0, sin_angle],
-                         [0, 1, 0],
-                         [-sin_angle, 0, cos_angle]])
-    elif axis == 'yaw':
-        return np.array([[cos_angle, -sin_angle, 0],
-                         [sin_angle, cos_angle, 0],
-                         [0, 0, 1]])
-    else:
-        raise ValueError("Invalid axis. Choose from 'roll', 'pitch', or 'yaw'.")
+    # Generate and normalize quaternion from axis-angle
+    q = quaternion_from_axis_angle(axis, angle)
+    q = quaternion_normalize(q)
 
-def transformation_matrix(axis=None, angle=np.pi/2, translation=[0,0,0]):
+    # Convert quaternion to rotation matrix
+    rotation_matrix = quaternion_to_rotation_matrix(q)
+
+    return rotation_matrix
+
+# TO DO: add documentation on my matrix frames pre vs post multiplication and review 
+def generate_translation_matrix(axis=[1, 0, 0], translation=1):
     """
-    Generate a 4x4 transformation matrix for rotating about the specified axis
-    and translating by the specified vector.
+    Generates a 4x4 translation matrix in homogeneous coordinates.
 
     Parameters:
-    axis (str): The axis to rotate about ('x', 'y', or 'z').
-    angle_degrees (float): The rotation angle in radians.
-    translation (list or tuple): A 3-element list or tuple representing the translation vector [tx, ty, tz].
+        axis (list or numpy.ndarray): The direction of translation. Default is [1, 0, 0].
+        translation (float): The magnitude of translation.
+    
+    Returns:
+        numpy.ndarray: A 4x4 translation matrix in homogeneous coordinates.
+    """
+    
+    # Convert axis to numpy array if not already
+    axis = np.array(axis)
+
+    # Normalize the axis vector
+    unit_axis = axis / np.linalg.norm(axis)
+    
+    # Create a 4x4 identity matrix and add translation components
+    transformation_matrix = np.eye(4)
+    transformation_matrix[:3, 3] += translation * unit_axis
+
+    return transformation_matrix
+
+    
+def euler_from_transformation_matrix(T):
+    """
+    Extracts roll, pitch, yaw from a 4x4 transformation matrix using ZYX Euler angles.
+
+    Parameters:
+        T (numpy.ndarray): A 4x4 transformation matrix.
 
     Returns:
-    numpy.ndarray: A 4x4 transformation matrix.
+        tuple: A tuple containing roll, pitch, and yaw angles in radians.
     """
 
-    # Create the 3x3 rotation matrix
-    if axis != None:
-        # angle_radians = np.radians(angle)
-        cos_angle = np.cos(angle)
-        sin_angle = np.sin(angle)
-        
-        if axis == 'roll':
-            rot_matrix = np.array([[1, 0, 0],
-                                [0, cos_angle, -sin_angle],
-                                [0, sin_angle, cos_angle]])
-        elif axis == 'pitch':
-            rot_matrix = np.array([[cos_angle, 0, sin_angle],
-                                [0, 1, 0],
-                                [-sin_angle, 0, cos_angle]])
-        elif axis == 'yaw':
-            rot_matrix = np.array([[cos_angle, -sin_angle, 0],
-                                [sin_angle, cos_angle, 0],
-                                [0, 0, 1]])
+    # Extract the rotation matrix
+    R = T[:3, :3]
+
+    # Check for a pure rotation of zero (identity matrix)
+    if np.allclose(R, np.eye(3)):
+        return 0.0, 0.0, 0.0
+
+    # Standard angle extraction avoiding gimbal lock
+    if R[2, 0] != 1 and R[2, 0] != -1:
+        pitch = -np.arcsin(R[2, 0])
+        roll = np.arctan2(R[2, 1] / np.cos(pitch), R[2, 2] / np.cos(pitch))
+        yaw = np.arctan2(R[1, 0] / np.cos(pitch), R[0, 0] / np.cos(pitch))
+    else:
+        # Gimbal lock case - set yaw to 0 (or any constant) if ambiguous
+        yaw = 0.0
+        if R[2, 0] == -1:
+            pitch = np.pi / 2
+            roll = yaw + np.arctan2(R[0, 1], R[0, 2])
         else:
-            raise ValueError("Invalid axis. Choose from 'roll', 'pitch', or 'yaw'.")
-    else:
-        rot_matrix = np.eye(3)
+            pitch = -np.pi / 2
+            roll = -yaw + np.arctan2(-R[0, 1], -R[0, 2])
+
+    return roll, pitch, yaw
+
+
+def get_transformation_from_pose(pose = Pose()):    # Calculate individual rotation matrices
     
- 
-    # Create the 4x4 transformation matrix using the translation 
-    transform_matrix = np.eye(4)
-    transform_matrix[:3, :3] = rot_matrix
-    transform_matrix[:3, 3] = translation
+    R_x = np.array([[1, 0, 0],
+                    [0, np.cos(pose.roll), -np.sin(pose.roll)],
+                    [0, np.sin(pose.roll), np.cos(pose.roll)]])
+    
+    R_y = np.array([[np.cos(pose.pitch), 0, np.sin(pose.pitch)],
+                    [0, 1, 0],
+                    [-np.sin(pose.pitch), 0, np.cos(pose.pitch)]])
+    
+    R_z = np.array([[np.cos(pose.yaw), -np.sin(pose.yaw), 0],
+                    [np.sin(pose.yaw), np.cos(pose.yaw), 0],
+                    [0, 0, 1]])
 
+    # Combine rotations
+    R = R_z@(R_y@R_x)
+    
+    # Create the transformation matrix
+    T = np.array([[R[0, 0], R[0, 1], R[0, 2], pose.x],
+                  [R[1, 0], R[1, 1], R[1, 2], pose.y],
+                  [R[2, 0], R[2, 1], R[2, 2], pose.z],
+                  [0, 0, 0, 1]])
 
-    return transform_matrix
+    return T
+
+# sample usage and calling of functions
+def main(show_sample = False):
+    if show_sample:
+            
+        # Define an axis and angle for rotation
+        axis = [0, 1, 0]  # Rotate around y-axis
+        angle = np.pi / 4  # Angle in radians (45 degrees)
+
+        # Generate rotation matrix
+        rotation_matrix = generate_rotation_matrix(axis, angle)
+        print("Rotation Matrix:\n", rotation_matrix)
+
+        # Define translation properties
+        translation_axis = [1, 0, 0]  # Translate along x-axis
+        translation_distance = 5  # Translation magnitude
+
+        # Generate translation matrix
+        translation_matrix = generate_translation_matrix(translation_axis, translation_distance)
+        print("\nTranslation Matrix:\n", translation_matrix)
+
+        # Combining rotation and translation into a single transformation matrix
+        transformation_matrix = np.eye(4)
+        transformation_matrix[:3, :3] = rotation_matrix
+        transformation_matrix = transformation_matrix @ translation_matrix
+        print("\nCombined Transformation Matrix:\n", transformation_matrix)
+
+        # Extract Euler angles from the transformation matrix
+        roll, pitch, yaw = euler_from_transformation_matrix(transformation_matrix)
+        print("\nEuler Angles from Transformation Matrix:")
+        print("Roll:", np.degrees(roll))
+        print("Pitch:", np.degrees(pitch))
+        print("Yaw:", np.degrees(yaw))
+        return 0
+    else:
+        return 0
+
+if __name__ == '__main__':
+    main(show_sample = False)
+    # main(show_sample = True)

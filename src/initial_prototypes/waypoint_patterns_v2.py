@@ -1,6 +1,11 @@
 import numpy as np
-from classes import Pose
-from matrices import *
+from classes2 import Pose
+from matrices_v2 import *
+    
+# # Example parameters for two patterns
+# # lawnmower pattern
+# width1, height1, strip_width1, spacing1 = 30, 20, 5, 3
+# center1, radius1, angle1, increments1 = np.array([0, 0]), 2, np.pi/2, 10 
 
 #  probably dont need this 
 def path_position_tolerance_check(pose, waypoint, tolerance=0.2):
@@ -16,8 +21,46 @@ def print_waypoints(waypoints):
     for pose in waypoints:
         print(pose)
 
+
+def remove_adjacent_duplicates(array):
+    # Compute a boolean mask where each row is different from the next row
+    mask = np.any(np.diff(array, axis=0) != 0, axis=1)
+
+    # Use np.concatenate to ensure the result includes the last row
+    result = np.concatenate(([True], mask))
+
+    # Apply the mask to get the result without adjacent duplicate rows
+    filtered_array = array[result]
+    return filtered_array
+
+def chain_patterns(new_waypoints_local, waypoints_array, mstack, local_transform):
+    # extract local frame 
+    xyz = new_waypoints_local[:, :3]
+    rpy = new_waypoints_local[:, 3:]
+    # print(xyz)
+    # transform waypoints to global frame
+    new_waypoints_global= transform_waypoints(mstack, new_waypoints_local)
+    # new_waypoints_global = np.hstack(xyz_global,)
+    
+  
+  
+    # add waypoints to global stack and remove duplicate adjacent waypoints
+    waypoints_array = np.vstack((waypoints_array, new_waypoints_global))
+    
+    # remove duplicate adjacent waypoints
+    waypoints_array= remove_adjacent_duplicates(waypoints_array)
+    
+    # update transform
+    mstack = np.matmul(mstack,local_transform)
+    
+    return waypoints_array, mstack, new_waypoints_global
+    
+    
+    
+    
+    
 # FIXED HEADING PATTERNS RELATIVE TO THE INITIAL POSITION AND ORIENTATION (body frame)                 
-def generate_forward_path(current_pose = Pose(0,0,0), distance=4, spacing=1):
+def generate_forward_path(current_pose = Pose(0,0,0,0,0,0), distance=4, spacing=1):
     """
     Generates a series of waypoints that form a linear path along the x-axis(body frame of robot), starting from the
     origin of a coordinate frame and extending to a specified distance with a defined spacing between each waypoint. 
@@ -37,38 +80,44 @@ def generate_forward_path(current_pose = Pose(0,0,0), distance=4, spacing=1):
     """
     # Start at the body frame origin
     x = current_pose.x
+    next_x = x
     
     # Initialize an empty list to store waypoints
     waypoints = []
     
-    # initialize a waypoint as a pose 
+    # Initialize a waypoint as a pose 
     waypoint = Pose()
-    
+
     # Generate waypoints until the specified distance is covered
-    while x <= distance:
-        # update the waypoint with new values
-        waypoint.update(x,current_pose.y,current_pose.yaw)
+    while next_x <= distance:
+        # Update the waypoint with new values (keeping y, z, roll, pitch, yaw the same)
+        waypoint.update(next_x, current_pose.y, current_pose.z,
+                        current_pose.roll, current_pose.pitch, current_pose.yaw)
         
-        # append it to the waypoints list as a list
+        # Append it to the waypoints list as a list
         waypoints.append(waypoint.get_list()) 
-        x += spacing
+        next_x += spacing
     
-    # Ensure the last waypoint is within the tolerance of the desired 
-    if x < distance:
+    # Ensure the last waypoint is within the tolerance of the desired distance
+    if waypoint.x < distance:
         # Update the waypoint for the final point if it did not reach it  
-        waypoint.update(distance, current_pose.y, current_pose.yaw)
+        waypoint.update(distance, current_pose.y, current_pose.z,
+                        current_pose.roll, current_pose.pitch, current_pose.yaw)
         waypoints.append(waypoint.get_list())
         
-    # convert to numpy array
+    # Convert to numpy array
     waypoints_array = np.array(waypoints)
     
-    transformation = transformation_matrix(translation=[distance,0,0])
-    
+    # Generate transformation matrix
+    transformation = generate_transformation_matrix(translation=[distance, 0, 0])
+
     return waypoints_array, waypoint, transformation
 
-def generate_rotation_waypoint(current_pose = Pose(0,0,0), rotation = np.pi/2, interval = False, rotation_interval = np.pi/4):
-    # Start at the body frame origin
-    yaw = current_pose.yaw
+def generate_rotation_waypoint(current_pose = Pose(0,0,0,0,0,0), rotation = np.pi/2, interval = False, rotation_interval = np.pi/4):
+    
+    # Start at the initial yaw
+    initial_yaw = current_pose.yaw
+    next_yaw = initial_yaw
     
     # Initialize an empty list to store waypoints
     waypoints = []
@@ -77,52 +126,57 @@ def generate_rotation_waypoint(current_pose = Pose(0,0,0), rotation = np.pi/2, i
     waypoint = current_pose
     
     if interval:
-        # Generate waypoints until the specified rotation angle is reached
-        while yaw <= current_pose.yaw + rotation:
-            #update the waypoint with new values
-            waypoint.update(current_pose.x, current_pose.y, yaw)
-            
-            # append it to the waypoints list as a list
-            waypoints.append(waypoint.get_list())
-            
-            yaw += rotation_interval
         
-        # Ensure the last waypoint is within the tolerance of the desired 
-        if yaw < rotation:
-            # Update the waypoint for the final point if it did not reach it  
-            waypoint.update(current_pose.x, current_pose.y, rotation)
+        # Generate waypoints until the specified rotation angle is reached
+        while next_yaw <= initial_yaw + rotation:
+            # Update the waypoint with new yaw
+            waypoint.update(
+                current_pose.x,
+                current_pose.y,
+                current_pose.z,
+                current_pose.roll,
+                current_pose.pitch,
+                next_yaw
+            )
+            # Append it to the waypoints list as a list
             waypoints.append(waypoint.get_list())
             
+            next_yaw += rotation_interval
+        
+        # Ensure the last waypoint is within the tolerance of the desired rotation
+        if  waypoint.yaw < initial_yaw + rotation:
+            # Update the waypoint for the final point if it did not reach it  
+            waypoint.update(
+                current_pose.x,
+                current_pose.y,
+                current_pose.z,
+                current_pose.roll,
+                current_pose.pitch,
+                initial_yaw + rotation
+            )
+            waypoints.append(waypoint.get_list())
     else:
         
         # append starting point to the waypoints list as a list
         waypoints.append(waypoint.get_list())
             
         # Update the waypoint for the final point if it did not reach it and add it to the waypoint 
-        waypoint.update(current_pose.x, current_pose.y, current_pose.yaw + rotation)
+        waypoint.update(
+                current_pose.x,
+                current_pose.y,
+                current_pose.z,
+                current_pose.roll,
+                current_pose.pitch,
+                initial_yaw + rotation
+            )
         waypoints.append(waypoint.get_list())  
         
     # convert to numpy array
     waypoints_array = np.array(waypoints)
     
-    transformation = transformation_matrix(axis='yaw', angle=rotation)
+    transformation = generate_transformation_matrix(axis='yaw', angle=rotation)
     
-    return waypoints_array, waypoint, transformation_matrix
-
-
-
-    waypoints.append(waypoint.get_list())
-    
-    # generate the waypoint for the rotation
-    waypoint.update(x,y,delta_yaw)
-        
-    # append it to the waypoints list as a list
-    waypoints.append(waypoint.get_list()) 
-    # convert to numpy array 
-    waypoints_array = np.array(waypoints)
-    return 
-
-
+    return waypoints_array, waypoint, transformation
     
     
 
@@ -250,9 +304,9 @@ def orbit_mode(center,radius,angle,increments):
     POSE = np.array([radius*np.cos(angles), radius*np.sin(angles), ]) + center[:,None]
     return POSE.T
 
-def main():
-        waypoints = generate_forward_path()
-        print_waypoints(waypoints)
+# def main():
+#         waypoints = generate_forward_path()
+#         print_waypoints(waypoints)
         
-if __name__ == "__main__":
-    main()
+# if __name__ == "__main__":
+#     main()

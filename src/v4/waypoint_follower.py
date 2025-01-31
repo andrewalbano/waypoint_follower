@@ -9,12 +9,7 @@ import time
 from pymavlink import mavutil
 import threading
 
-from classes import Pose
 CONTROL_CLIP = (1400, 1600)
-
-# Initializing the current pose (x = 0.0, y = 0.0 , yaw = 0.0) 
-current_pose = Pose()
-
 
 def update_plot():
     plt.ion()  # Turn on interactive mode
@@ -22,7 +17,10 @@ def update_plot():
 
     while not rospy.is_shutdown():
         if len(x_vals) > 0:
-        
+            # x = current_position['x']
+            # y = current_position['y']
+            # yaw = current_position['yaw']
+
             ax.clear()  # Clear the previous plot
             
             # Plot the robot's trajectory (x, y)
@@ -121,18 +119,12 @@ y_vals = []
 yaws = []
 
 # Initialize current position and yaw
-
+current_position = {'x': 0.0, 'y': 0.0, 'yaw': 0.0}
 
 # Callback function to update the current position and yaw from /dvl/local_position
 def position_callback(msg):
-    """
-    Callback function to update the current pose from a ROS message.
+    global current_position
 
-    Parameters:
-    ----------
-    msg : PoseWithCovarianceStamped
-        ROS message containing position and orientation data.
-    """
     # Extract position (x, y) from the message
     x = msg.pose.pose.position.x
     y = msg.pose.pose.position.y
@@ -141,27 +133,28 @@ def position_callback(msg):
     q = msg.pose.pose.orientation
     _, _, yaw = euler_from_quaternion([q.x, q.y, q.z, q.w])
 
-    # Update the Pose instance with the new position and yaw
-    current_pose.update(x, y, yaw)
+    # Update the global position and yaw
+    current_position['x'] = x
+    current_position['y'] = y
+    current_position['yaw'] = yaw
 
-    # Optionally, store values in separate lists for further processing or plotting
-    x_vals.append(current_pose.x)
-    y_vals.append(current_pose.y)
-    yaws.append(current_pose.yaw)
+    x_vals.append(x)
+    y_vals.append(y)
+    yaws.append(yaw)
 
 # Function to calculate control inputs based on P controller in the body frame
-def calculate_control(current_pose, waypoint):
+def calculate_control(current_position, waypoint):
     # Global errors (in global frame)
-    ex_g = waypoint[0] - current_pose.x
-    ey_g = waypoint[1] - current_pose.y
+    ex_g = waypoint[0] - current_position['x']
+    ey_g = waypoint[1] - current_position['y']
     
     # Transform errors to the body frame using the robot's yaw
-    ex = np.cos(current_pose.yaw) * ex_g + np.sin(current_pose.yaw) * ey_g
-    ey = -np.sin(current_pose.yaw) * ex_g + np.cos(current_pose.yaw) * ey_g
+    ex = np.cos(current_position['yaw']) * ex_g + np.sin(current_position['yaw']) * ey_g
+    ey = -np.sin(current_position['yaw']) * ex_g + np.cos(current_position['yaw']) * ey_g
     
     # Yaw error: difference between current yaw and desired yaw
     desired_yaw = np.arctan2(ey_g, ex_g)  # Desired yaw angle toward waypoint
-    yaw_error = desired_yaw - current_pose.yaw
+    yaw_error = desired_yaw - current_position['yaw']
     # Normalize yaw error to [-pi, pi] range
     if yaw_error > np.pi:
         yaw_error -= 2 * np.pi
@@ -188,8 +181,8 @@ def send_control(x_control, y_control, yaw_control, master):
     set_rc_channel_pwm(4, master, pwm=yaw_pwm)
 
 # Function to check if the robot has reached the waypoint (within a tolerance)
-def reached_waypoint(current_pose, waypoint, tolerance=0.2):
-    distance = np.sqrt((current_pose.x - waypoint[0]) ** 2 + (current_pose.y - waypoint[1]) ** 2)
+def reached_waypoint(current_position, waypoint, tolerance=0.2):
+    distance = np.sqrt((current_position['x'] - waypoint[0]) ** 2 + (current_position['y'] - waypoint[1]) ** 2)
     return distance < tolerance
 
 # Thread for real-time visualization using Matplotlib
@@ -253,7 +246,7 @@ def listener():
         waypoint = waypoints[current_waypoint_index]
         
         # Calculate control inputs to reach the current waypoint
-        x_control, y_control, yaw_control = calculate_control(current_pose, waypoint)
+        x_control, y_control, yaw_control = calculate_control(current_position, waypoint)
         
         # Check if we need to rotate to the correct heading first
         # If yaw control (heading) is significant, we focus on turning first
@@ -267,7 +260,7 @@ def listener():
             send_control(x_control, y_control, 0, master)  # Only send translation control
 
         # Check if the robot has reached the current waypoint
-        if reached_waypoint(current_pose, waypoint, tolerance=0.2):
+        if reached_waypoint(current_position, waypoint, tolerance=0.2):
             rospy.loginfo(f"Reached waypoint {current_waypoint_index + 1}: {waypoint}")
             current_waypoint_index += 1
 
